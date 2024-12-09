@@ -1,5 +1,6 @@
 ﻿open System
 open System.IO
+open System.Security.Cryptography.X509Certificates
 
 let inputFile = "input.txt"
 
@@ -19,101 +20,122 @@ let rec splitOnLine (splitOn: 'T -> bool) (lines: 'T list) : 'T list list =
 
 let inputs = input |> splitOnLine (fun t -> t = "")
 
-input |> List.map (printfn "%A")
+// input |> List.map (printfn "%A")
 
-let toMap (s: string list)  =
-    let rec toLL (y:int) (s: string list) =
-        match s with
-        | [] -> []
-        | s::rest ->
-            let s = s.ToCharArray() |> Array.toList |> List.indexed
-                        |> List.map (fun (x,c) -> (x,y),c)
-            s :: (toLL (y+1) rest)
-    let s = s |> List.rev
-    let s = toLL 0 s
-    s |> List.concat |> Map.ofList
 
-let map = toMap input
+let bytes = input[0].ToCharArray() |> Array.toList
+          |> List.map (fun c -> $"{c}" |> int64)
 
-printfn $"{map}"
+let toFS (bytes:int64 list) =
+  let rec toFS (rfs: (int64*int64*int64) list) (fn: int64) (bytes: int64 list) =
+    match bytes with
+    | [c] ->
+        let rfs = (fn,c,0L) :: rfs 
+        rfs |> List.rev 
+    | a::b::bytes ->
+        let rfs = (fn,a,b)::rfs 
+        let fn = fn + 1L 
+        toFS rfs fn bytes
+  toFS [] 0L bytes 
 
-let isInMap (p:int*int)  = map.ContainsKey  p
+let cfs = bytes |> toFS
+bytes |> printfn "%A"
+cfs |> fun s -> printfn $"{s.Length} : {s}"
 
-let freqAntennas = map |> Map.toList
-                   |> List.groupBy (fun (_,c) -> c)
-                   |> List.filter (fun (i,_) -> i <> '.')
-                   |> List.map (fun (c,pl) -> (c, pl |> List.map fst))
+type Block = int64*int64*int64
 
-freqAntennas |> printfn "%A"
+let compress (cfs:Block list) =
+    let rec compress (rfs:Block list) (cfs:Block list) =
+        match cfs with
+        | [fn,fs,_] -> (fn,fs,0L) :: rfs |> List.rev
+        | [fn1,bs1,0L;fn2,bs2,_] when fn1 = fn2 ->
+            (fn1,bs1+bs2,0L) :: rfs |> List.rev 
+        | (_,_,0L)::rest ->
+            let rfs = cfs.Head :: rfs
+            let cfs = cfs.Tail
+            compress rfs cfs
+        | (fn1,bs1,free1)::rest ->
+            match cfs |> List.last with
+            | (fn2,bs2,_) when bs2 <= free1 ->
+                let rfs = (fn1,bs1,0L) :: rfs
+                let cfs = cfs.Tail 
+                let cfs = cfs |> List.removeAt ((cfs |> List.length) - 1)
+                let cfs = (fn2,bs2,free1-bs2)::cfs
+                compress rfs cfs
+            | (fn2,bs2,_) when bs2 > free1 ->
+                let rfs = (fn1,bs1,0L) :: rfs
+                let cfs = cfs.Tail 
+                let cfs = cfs |> List.removeAt ((cfs |> List.length) - 1)
+                let cfs = cfs |> List.insertAt (cfs |> List.length) (fn2,bs2-free1,0L)
+                let cfs = (fn2,free1,0L) :: cfs
+                compress rfs cfs
+    compress [] cfs 
+                
+let ex1 = compress [0L,1L,2L;1L,3L,4L;2L,5L,0L]
+            
+ex1 |> printfn "%A"
 
-let allPairs (l: 'a list) : ('a*'a) list =
-    let rec allPairs (l: 'a list) =
-        match l with
-        | [] -> []
-        | [_] -> []
-        | a::b::rest ->
-            let l0 = [(a,b)]
-            let l1 = allPairs (a::rest)
-            let l2 = allPairs (b::rest)
-            [l0;l1;l2] |> List.concat
-    allPairs l 
+let fs2 = "2333133121414131402".ToCharArray() |> Array.toList
+          |> List.map (fun c -> $"{c}") |> List.map int64 |> toFS
+          
+let ex2 = compress fs2
 
-let pairs = freqAntennas |> List.map (fun (pos,a) -> pos,allPairs a)
+ex2 |> printfn "%A"
 
-pairs |> List.map (printfn "Pair: %A")
+let rec checksum (i:int64) (cs:int64) (blocks:Block list) =
+    match blocks with
+    | [] -> cs
+    | (_,0L,0L)::rest -> checksum i cs rest
+    | (a,0L,free)::rest ->
+        let blocks = (a,0L,free-1L) :: rest
+        checksum (i+1L) cs blocks 
+    | (fn,bs,free)::rest ->
+        let cs = cs + (fn*i)
+        let i = i + 1L
+        let blocks = (fn,bs-1L,free)::rest
+        checksum i cs blocks 
+checksum 0L 0L ex2  |> printfn "%A"
 
-let ans ((x1,y1),(x2,y2)) : (int*int) list =
-    let p1 = 2*x1 - x2, 2*y1 - y2
-    let p2 = 2*x2 - x1, 2*y2 - y1
-    [p1;p2] |> List.filter isInMap 
-    
-let corr = pairs |> List.map snd |> List.concat |> List.map ans
+cfs |> compress |> checksum 0L 0L |> printfn "ANSWER 1 %A"
 
-corr |> List.map (printfn "%A")
-
-let ans1 = corr |> List.concat |> List.sort |> Set.ofList
-let ans1_1 = ans1.Count 
-
-ans1.Count |> printfn "ANSWER1 %A"
-
-input |> List.map (printfn "%A")
-
-let pairs2 =
-    pairs
-    |> List.map snd
-    |> List.concat 
-    |> List.map (fun ((x1,y1),(x2,y2)) -> ((x1 |> int64, y1 |> int64),(x2 |> int64,y2 |> int64)))
-    
-let height = input.Length
-let width = input[0].Length
-
-let rangepos = seq { 0 .. (min height width) } |> Seq.map (int64) |> Seq.toList
-let rangeneg = rangepos |> List.map (fun x -> -x)
-let range = [rangepos;rangeneg] |> List.concat |> List.sort 
-
-range |> List.map (printfn "%A")
-
-let isInMap2 (x:int64,y: int64) =
-    if x < 0 || y < 0 then false
-    elif x > (width+1 |>int64) || y>(height+1 |> int64) then false
-    else
-        let x = x |> int
-        let y = y |> int
-        map.ContainsKey (x,y)
-
-let ans2 ((x1,y1),(x2,y2)) : (int64*int64) list =
-    let ans2 (i:int64) = 
-        let x = x1 + i*(x2-x1)
-        let y = y1 + i*(y2-y1)
-        (x,y)
-    range |> List.map ans2 |> List.filter isInMap2 
+let compress2 (blocks:Block list) =
+    let blocks = blocks |> List.rev
+    let rec compress2 (cfs:Block list) (blocks:Block list) =
+        match blocks with
+        | [] -> cfs
+        | [first] -> first::cfs
+        | (fn2,bs2,free2)::(fn1,bs1,free1)::before ->
+            let canBeMovedFarAhead = before |> List.exists (fun (_,_,free) -> free >= bs2)
+            let canBeShifted = free1 >= bs2
+            if canBeMovedFarAhead then
+                let target = before |> List.findIndexBack (fun (_,_,free) -> free >= bs2)
+                let (fnt,bst,tfree) = before[target]
+                let before = before |> List.removeAt target
+                let before = List.insertAt target (fnt,bst,0L) before 
+                let before = List.insertAt target (fn2,bs2,tfree-bs2) before
+                let blocks = (fn1,bs1,free1+bs2+free2) :: before  
+                // printfn $"TARGET: {target} {before |> List.rev}"
+                compress2 cfs blocks 
+            elif canBeShifted then
+                let cfs = (fn2,bs2,free1+free2) :: cfs
+                let blocks = (fn1,bs1,0L)::before
+                // printfn $"SHIFTING: {fn2} -> {fn1}"
+                compress2 cfs blocks
+            else
+                let cfs = blocks.Head :: cfs
+                let blocks = blocks.Tail
+                // printfn $"SKIPPING: {fn2}"
+                compress2 cfs blocks 
+    compress2 [] blocks
         
-// x = x + n * (x2-x1)
-// y = y + n * (y2-y1)
 
-let antis2 = pairs2 |> List.map ans2
+let e2 = fs2 |> compress2
 
-let antiset = antis2 |> List.concat |> Set.ofList
+// printfn $"E2 = {e2}"
 
+// e2 |> List.map (printfn "E2 BLOCK: %A")
 
-antiset.Count |> printfn "ANSWER2: %A"
+e2 |> checksum 0L 0L |> printfn "%A"
+                
+cfs |> compress2 |> checksum 0L 0L |> printfn "ANSWER2: %A"              
+   
