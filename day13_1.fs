@@ -2,7 +2,7 @@
 
 let print a = a |> printfn "%A"
 let printlist a = List.map print
-let inputFile = "/Users/jan/downloads/input-nav.txt"
+let inputFile = "input.txt"
 let input = File.ReadAllLines inputFile |> Array.toList
 
 input |> List.map (printfn "%A")
