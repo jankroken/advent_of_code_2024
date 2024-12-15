@@ -4,13 +4,13 @@ let print a = a |> printfn "%A"
 let printlist a = a |> List.map print
 let printlistf f a = a |> List.map (printfn f)
 
-let test = true
+let test = false
 
 let inputFile =
     if test then
-        "/Users/jan/downloads/input-test.txt"
+        "input-test.txt"
     else
-        "/Users/jan/downloads/input-nav.txt"
+        "input.txt"
 
 let input = File.ReadAllLines inputFile |> Array.toList
 // printlist input
@@ -163,7 +163,8 @@ let moveHorizontally (map: Map<Pos, char>) (robot: Pos) (dir: char) =
 
     match nextTile with
     | Some('#') -> map, robot
-    | Some('X') -> map, robot
+    | Some(')') -> map, robot
+    | Some('(') -> map, robot
     | Some('.') -> map, newRobotPos
     | Some(rp) when rp = ']' || rp = '[' ->
         printfn "PUSHING!"
@@ -176,8 +177,9 @@ let moveHorizontally (map: Map<Pos, char>) (robot: Pos) (dir: char) =
             printfn $"moved:{moved}"
             let map = map.Add(newRobotPos, '.')
             map, newRobotPos
+        | None -> map,robot
 
-let addXY ((x,y):Pos) ((dx,dy):Pos) = (x+dx),(y-dy)
+let addXY ((x,y):Pos) ((dx,dy):Pos) = (x+dx),(y+dy)
 
 let rec boxesAt (map:Map<Pos,char>) (poss:(Pos*char) list) : Pos list =
     match poss with
@@ -190,13 +192,20 @@ let hasBlockers (map:Map<Pos,char>) (poss:(Pos*char) list) =
     poss |> List.exists (fun (p,_) -> map[p] = '#' || map[p] = '(' || map[p] = ')')
 
 let rec pushV (remove:Pos list) (add:(Pos*char) list) (map: Map<Pos, char>) (dir:char) (moving: Pos list) : Option<Pos list*(Pos*char) list> =
+    // printfn $"pushV moving:{moving} {delta dir}"
     let above : (Pos*char) list = moving |> List.map (fun p -> (addXY p (delta dir)),map[p])
     let remove = List.concat [remove;moving]
     let add = List.concat [add;above]
+    // printfn $"pushV above={above}"
+    // printfn $"      remove={remove}"
+    // printfn $"      add={add}"
+    // printfn $"      hasblockers={hasBlockers map above}"
     if hasBlockers map above then None
+    elif moving = [] then Some(remove,add)
     else 
         let boxesAbove = boxesAt map above
         pushV remove add map dir boxesAbove
+        
 let rec addAll (map:Map<Pos,char>) (entries:(Pos*char) list) =
     if entries = [] then map
     else
@@ -205,14 +214,16 @@ let rec addAll (map:Map<Pos,char>) (entries:(Pos*char) list) =
  
 let pushVert (map:Map<Pos,char>) (robot:Pos) (dir: char) =
     pushV [] [] map dir [robot]
+    
 let moveVertically (map: Map<Pos, char>) (robot: Pos) (dir: char) =
-    printfn $"MOVE VERT {robot} {dir}"
     let newRobotPos = moveRobotPos dir robot
+    printfn $"MOVE VERT {robot} {dir} -> {newRobotPos}"
     let nextTile = map.TryFind newRobotPos
 
     match nextTile with
     | Some('#') -> map, robot
-    | Some('X') -> map, robot
+    | Some('(') -> map, robot
+    | Some(')') -> map, robot
     | Some('.') -> map, newRobotPos
     | Some(rp) when rp = ']' || rp = '[' ->
         printfn "PUSHING VERT!"
@@ -220,15 +231,15 @@ let moveVertically (map: Map<Pos, char>) (robot: Pos) (dir: char) =
 
         match filled with
         | Some (toRemove,toAdd) when (dir = '^' || dir = 'v') ->
-            let toRemove = toRemove |> Set.ofList
-            let map = map |> Map.filter (fun k _ -> toRemove.Contains k |> not)
+            let toRemove = toRemove |> List.map (fun p -> p,'.')
+            let map = addAll map toRemove 
             let map = addAll map toAdd
             let map = map.Add(newRobotPos, '.')
             map, newRobotPos
         | None ->
             map,robot 
 
-let rec solve (steps: int) (map: Map<Pos, char>) (robot: Pos) (dirs: char list) =
+let rec solve (limit:int) (steps: int) (map: Map<Pos, char>) (robot: Pos) (dirs: char list) =
     let dir = dirs.Head
     let dirs = dirs.Tail
     let map = if (steps % 10) = 0 then tidyMap map else map
@@ -241,10 +252,10 @@ let rec solve (steps: int) (map: Map<Pos, char>) (robot: Pos) (dirs: char list) 
             moveVertically map robot dir
     // printfn "AFTER: "
     // printMap (withRobot map robot)
-    if dirs = [] || steps > 2 then
+    if dirs = [] then // || steps > limit then
         map, robot
     else
-        solve (steps + 1) map robot dirs
+        solve limit (steps + 1) map robot dirs
 
 let score (map: Map<Pos, char>) =
     let maxY = map |> Map.keys |> Seq.max |> snd
@@ -254,15 +265,16 @@ let score (map: Map<Pos, char>) =
 
     map
     |> Map.toList
-    |> List.filter (fun (_, v) -> v = 'O' || v = 'X')
+    |> List.filter (fun (_, v) -> v = '[' || v = '(')
     |> List.map fst
     |> List.map score
     |> List.sum
 
 
 let part1 () =
+    // let limit = 2000
     let map, robot = setupMap map
-    let map, robot = solve 0 map robot dirs
+    let map, robot = solve -1 0 map robot dirs
     let score = score map
     withRobot map robot |> printMap 
     printfn $"ANSWER 1: {score}"
