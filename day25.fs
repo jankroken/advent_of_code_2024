@@ -5,7 +5,7 @@ type INT = System.Numerics.BigInteger
 
 let print a = a |> printfn "%A"
 let printlist a = a |> List.map print
-let inputFile = "/users/Jan/Downloads/input-irc.txt"
+let inputFile = "input.txt"
 let input = File.ReadAllLines inputFile |> Array.toList
 
 input |> printlist
